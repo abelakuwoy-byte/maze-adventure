@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maze Adventure RPG</title>
+<style>
+  body{margin:0;padding:0;font-family:sans-serif;overflow:hidden;background:#000;color:#fff;}
+  #gameContainer{width:800px;height:600px;margin:20px auto;position:relative;overflow:hidden;background-image:url('https://i.ibb.co/2sT7C8Y/forest-bg.png');background-size:cover;border:3px solid #555;}
+  #player{width:40px;height:40px;background:yellow;position:absolute;top:550px;left:380px;border-radius:5px;z-index:2;transition:top 0.1s,left 0.1s;}
+  .enemy,.fairy,.chest{width:40px;height:40px;position:absolute;border-radius:5px;transition:top 0.1s,left 0.1s;}
+  .enemy{background:red;}
+  .fairy{background:pink;width:30px;height:30px;border-radius:50%;}
+  .chest{background:gold;cursor:pointer;border-radius:10px;}
+  #dialog{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);padding:10px;border-radius:5px;width:90%;max-width:780px;}
+  #inventory{position:absolute;top:10px;left:10px;background:rgba(0,0,0,0.7);padding:5px 10px;border-radius:5px;}
+  .hidden{display:none;}
+  .enemy-health{position:absolute;width:40px;height:5px;background:#0f0;top:-6px;left:0;}
+</style>
+</head>
+<body>
+
+<h1 style="text-align:center;">Maze Adventure RPG</h1>
+<div id="gameContainer">
+  <div id="player"></div>
+  <div id="dialog">
+    <div id="startScreen">
+      <p>Selamat datang di Maze Adventure RPG!</p>
+      <p>Masukkan nama karakter:</p>
+      <input type="text" id="charName" placeholder="Nama kamu">
+      <p>Pilih karakter:</p>
+      <button onclick="chooseCharacter('cowo')">Cowok</button>
+      <button onclick="chooseCharacter('cewe')">Cewek</button>
+    </div>
+    <div id="gameDialog" class="hidden"></div>
+  </div>
+  <div id="inventory">Nyawa: 3 | Peri diselamatkan: 0 | Senjata: -</div>
+</div>
+
+<!-- Sounds -->
+<audio id="soundAttack" src="https://www.soundjay.com/button/beep-07.wav"></audio>
+<audio id="soundHit" src="https://www.soundjay.com/button/beep-10.wav"></audio>
+<audio id="soundWin" src="https://www.soundjay.com/misc/success-fanfare-trumpets-01.mp3"></audio>
+
+<script>
+// ===== Game Variables =====
+let player = document.getElementById('player');
+let gameDialog = document.getElementById('gameDialog');
+let startScreen = document.getElementById('startScreen');
+let inventory = document.getElementById('inventory');
+let gameContainer = document.getElementById('gameContainer');
+
+let playerName = '';
+let playerLives = 3;
+let rescuedFairies = 0;
+let weapons = [];
+let canMove = false;
+let questionsAsked = 0;
+
+// ===== Dynamic Objects =====
+let enemies = [];
+let fairies = [];
+let chestSpawned = false;
+
+// ===== Question Bank =====
+const questionBank = [
+  {q:"Apa warna bendera Indonesia?", options:['Merah-Putih','Biru-Hijau'], answer:0, subject:'IPS'},
+  {q:"Pancasila adalah dasar negara Indonesia?", options:['Benar','Salah'], answer:0, subject:'Pancasila'},
+  {q:"HTML digunakan untuk membuat struktur website?", options:['Benar','Salah'], answer:0, subject:'Informatika'},
+  {q:"PHP adalah bahasa pemrograman front-end?", options:['Benar','Salah'], answer:1, subject:'Informatika'},
+  {q:"Hak asasi manusia wajib dihormati?", options:['Benar','Salah'], answer:0, subject:'IPS'},
+];
+
+// ===== Choose Character =====
+function chooseCharacter(gender){
+  let nameInput = document.getElementById('charName').value;
+  if(!nameInput){ alert('Tolong masukkan nama karakter!'); return; }
+  playerName = nameInput;
+  player.style.background = 'yellow';
+  startScreen.style.display = 'none';
+  gameDialog.classList.remove('hidden');
+  showDialog(`Halo ${playerName}! Kamu memilih ${gender}. Gunakan panah untuk bergerak. Selamatkan 5 peri dan hadapi naga!`);
+  canMove=true;
+  spawnEnemies();
+  spawnFairies();
+}
+
+// ===== Dialog Helper =====
+function showDialog(text){ gameDialog.innerHTML=text; }
+
+// ===== Spawn Enemies =====
+function spawnEnemies(){
+  for(let i=0;i<3;i++){
+    let enemy = document.createElement('div');
+    enemy.classList.add('enemy');
+    enemy.style.top=Math.random()*500+'px';
+    enemy.style.left=Math.random()*700+'px';
+    // health bar
+    let healthBar = document.createElement('div');
+    healthBar.classList.add('enemy-health');
+    enemy.appendChild(healthBar);
+    gameContainer.appendChild(enemy);
+    enemies.push({el:enemy, health:3, bar:healthBar});
+  }
+}
+
+// ===== Spawn Fairies =====
+function spawnFairies(){
+  for(let i=0;i<5;i++){
+    let fairy = document.createElement('div');
+    fairy.classList.add('fairy');
+    fairy.style.top=Math.random()*500+'px';
+    fairy.style.left=Math.random()*700+'px';
+    gameContainer.appendChild(fairy);
+    fairies.push(fairy);
+  }
+}
+
+// ===== Player Controls =====
+document.addEventListener('keydown', (e)=>{
+  if(!canMove) return;
+  let top=parseInt(player.style.top);
+  let left=parseInt(player.style.left);
+  if(e.key==='ArrowUp') player.style.top=Math.max(top-10,0)+'px';
+  if(e.key==='ArrowDown') player.style.top=Math.min(top+560,0)+'px';
+  if(e.key==='ArrowLeft') player.style.left=Math.max(left-10,0)+'px';
+  if(e.key==='ArrowRight') player.style.left=Math.min(left+760,0)+'px';
+  checkCollisions();
+});
+
+// ===== Collision Detection =====
+function checkCollisions(){
+  let px=parseInt(player.style.left);
+  let py=parseInt(player.style.top);
+
+  // Enemy collision
+  enemies.forEach(en=>{
+    let ex=parseInt(en.el.style.left);
+    let ey=parseInt(en.el.style.top);
+    if(Math.abs(px-ex)<40 && Math.abs(py-ey)<40){
+      if(en.health>0){
+        playerLives--;
+        document.getElementById('soundHit').play();
+        alert(`Kena musuh! Nyawa: ${playerLives}`);
+        if(playerLives<=0){ alert('Game Over!'); canMove=false;}
+      }
+    }
+  });
+
+  // Fairy collision
+  fairies.forEach((f,i)=>{
+    if(f.style.display!=='none'){
+      let fx=parseInt(f.style.left);
+      let fy=parseInt(f.style.top);
+      if(Math.abs(px-fx)<40 && Math.abs(py-fy)<40){
+        canMove=false;
+        askQuestion(i);
+      }
+    }
+  });
+
+  updateInventory();
+}
+
+// ===== Inventory =====
+function updateInventory(){
+  inventory.innerHTML=`Nyawa: ${playerLives} | Peri diselamatkan: ${rescuedFairies} | Senjata: ${weapons.join(', ') || '-'}`;
+}
+
+// ===== Ask Question =====
+function askQuestion(fairyIndex){
+  if(questionsAsked>=questionBank.length) questionsAsked=0;
+  let q=questionBank[questionsAsked];
+  let answer=prompt(`Peri terjebak! Jawab pertanyaan (${q.subject}):\n${q.q}\nPilihan: ${q.options.join(' / ')}`);
+  if(answer && answer.toLowerCase()===q.options[q.answer].toLowerCase()){
+    alert('Benar! Pilih senjata: Pedang / Busur / Tongkat');
+    let weapon = prompt('Pilih senjata: Pedang / Busur / Tongkat');
+    if(weapon) weapons.push(weapon);
+    rescuedFairies++;
+    fairies[fairyIndex].style.display='none';
+    showDialog(`Peri berhasil diselamatkan! Total: ${rescuedFairies}/5`);
+    if(rescuedFairies===5) gameWin();
+  } else {
+    alert('Salah! Peri gagal diselamatkan, musuh menyerang!');
+    playerLives--;
+    if(playerLives<=0){ alert('Game Over!'); canMove=false; }
+  }
+  questionsAsked++;
+  canMove=true;
+  updateInventory();
+}
+
+// ===== Game Win =====
+function gameWin(){
+  canMove=false;
+  document.getElementById('soundWin').play();
+  gameContainer.style.backgroundImage="url('https://i.ibb.co/4N9p6PJ/castle-bg.png')";
+  showDialog(`Selamat ${playerName}! Kamu berhasil menyelamatkan 5 peri dan menghadapi naga. Klik peti untuk membuka harta karun!`);
+
+  if(!chestSpawned){
+    let chest = document.createElement('div');
+    chest.classList.add('chest');
+    chest.style.top='300px';
+    chest.style.left='370px';
+    chest.addEventListener('click', ()=>{
+      alert('Harta karun terbuka! Koin keluar!');
+      window.open('https://docs.google.com/document/d/1iKnYIwj-1BYdb59mSscTWwxJf4uSc61rOuLRz1roAdI/edit?usp=drivesdk','_blank');
+    });
+    gameContainer.appendChild(chest);
+    chestSpawned=true;
+  }
+}
+
+// ===== Move Enemies Randomly =====
+setInterval(()=>{
+  enemies.forEach(en=>{
+    let top=parseInt(en.el.style.top);
+    let left=parseInt(en.el.style.left);
+    en.el.style.top=Math.min(560, Math.max(0, top+(Math.random()*21-10)))+'px';
+    en.el.style.left=Math.min(760, Math.max(0, left+(Math.random()*21-10)))+'px';
+  });
+},500);
+
+</script>
+</body>
+</html>
